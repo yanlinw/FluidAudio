@@ -9,6 +9,7 @@ enum PhonemeMapper {
     static func mapIPA(_ ipaTokens: [String], allowed: Set<String>) -> [String] {
         var out: [String] = []
         var index = ipaTokens.startIndex
+        var droppedTokens: [String] = []
 
         while index < ipaTokens.count {
             let token = ipaTokens[index]
@@ -31,8 +32,14 @@ enum PhonemeMapper {
 
             if let mapped = mapSingle(token, allowed: allowed) {
                 out.append(mapped)
+            } else {
+                droppedTokens.append(token)
             }
             index += 1
+        }
+
+        if !droppedTokens.isEmpty {
+            logger.debug("Dropped IPA tokens not in vocabulary: \(droppedTokens)")
         }
 
         return out
@@ -45,7 +52,11 @@ enum PhonemeMapper {
         // Normalize some IPA to approximate Kokoro inventory
         let ipaToKokoro = Self.ipaTable
 
-        if let mapped = ipaToKokoro[raw], allowed.contains(mapped) { return mapped }
+        if let mapped = ipaToKokoro[raw] {
+            // Empty string means "drop silently" (e.g., tone markers)
+            if mapped.isEmpty { return "" }
+            if allowed.contains(mapped) { return mapped }
+        }
 
         // Simple latin fallback: map ascii letters and digits if they exist
         if raw.count == 1, let scalar = raw.unicodeScalars.first,
@@ -80,5 +91,11 @@ enum PhonemeMapper {
         "ɛ": "ɛ", "e": "e", "o": "o", "ɔ": "ɔ",
         // Diphthongs
         "eɪ": "e", "oʊ": "o", "aɪ": "a", "aʊ": "a", "ɔɪ": "ɔ",
+        // Mandarin tone markers (eSpeak numeric format) - drop silently for now
+        // Kokoro model may encode tones implicitly via voice embeddings
+        "1": "", "2": "", "3": "", "4": "", "5": "",
+        // Mandarin-specific IPA symbols
+        "ɕ": "ɕ", "ʈʂ": "ʈʂ", "ʐ": "ʐ", "χ": "χ", "ɻ": "ɻ",
+        "y": "y", "ɥ": "ɥ", "ɤ": "ɤ", "ɚ": "ɚ", "ɜ": "ɜ",
     ]
 }
