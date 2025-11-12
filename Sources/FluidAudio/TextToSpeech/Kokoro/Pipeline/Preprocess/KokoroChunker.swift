@@ -493,7 +493,26 @@ enum KokoroChunker {
             phonemes = lexicon[normalized]
         }
 
-        if phonemes == nil, let ipa = try EspeakG2P.shared.phonemize(word: normalized) {
+        if phonemes == nil {
+            let g2pInput = normalized.isEmpty ? original : normalized
+            let espeakVoice = espeakVoiceIdentifier(for: original)
+            logger.debug("Phonemizing '\(original)' (normalized: '\(normalized)') with eSpeak voice: \(espeakVoice)")
+            if let ipa = try EspeakG2P.shared.phonemize(word: g2pInput, espeakVoice: espeakVoice) {
+                logger.debug("eSpeak returned IPA: \(ipa)")
+                let mapped = PhonemeMapper.mapIPA(ipa, allowed: allowed)
+                logger.debug("Mapped to Kokoro phonemes: \(mapped)")
+                if !mapped.isEmpty {
+                    phonemes = mapped
+                }
+            } else {
+                logger.warning("eSpeak returned nil for '\(g2pInput)' with voice \(espeakVoice)")
+            }
+        }
+
+        if phonemes == nil,
+            containsCJKCharacters(original),
+            let ipa = try? EspeakG2P.shared.phonemize(word: original, espeakVoice: espeakVoiceIdentifier(for: original))
+        {
             let mapped = PhonemeMapper.mapIPA(ipa, allowed: allowed)
             if !mapped.isEmpty {
                 phonemes = mapped
@@ -510,7 +529,12 @@ enum KokoroChunker {
             for spelled in spelledTokens {
                 var segment = lexicon[spelled]
 
-                if segment == nil, let ipa = try EspeakG2P.shared.phonemize(word: spelled) {
+                if segment == nil,
+                    let ipa = try EspeakG2P.shared.phonemize(
+                        word: spelled,
+                        espeakVoice: espeakVoiceIdentifier(for: spelled)
+                    )
+                {
                     let mapped = PhonemeMapper.mapIPA(ipa, allowed: allowed)
                     if !mapped.isEmpty {
                         segment = mapped
@@ -744,6 +768,50 @@ enum KokoroChunker {
             return base + trimmedNext
         }
         return base + " " + trimmedNext
+    }
+
+    private static func espeakVoiceIdentifier(for text: String) -> String {
+        var hasChinese = false
+        var hasJapanese = false
+        var hasKorean = false
+
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x4E00...0x9FFF, 0x3400...0x4DBF, 0x20000...0x2A6DF,
+                0x2A700...0x2B73F, 0x2B740...0x2B81F, 0x2B820...0x2CEAF,
+                0x2CEB0...0x2EBEF, 0x2F800...0x2FA1F:
+                hasChinese = true
+            case 0x3040...0x309F, 0x30A0...0x30FF, 0x31F0...0x31FF:
+                hasJapanese = true
+            case 0xAC00...0xD7AF, 0x1100...0x11FF, 0x3130...0x318F,
+                0xA960...0xA97F, 0xD7B0...0xD7FF:
+                hasKorean = true
+            default:
+                continue
+            }
+        }
+
+        if hasChinese { return "cmn" }
+        if hasJapanese { return "ja" }
+        if hasKorean { return "ko" }
+        return "en-us"
+    }
+
+    private static func containsCJKCharacters(_ text: String) -> Bool {
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x4E00...0x9FFF, 0x3400...0x4DBF, 0x20000...0x2A6DF,
+                0x2A700...0x2B73F, 0x2B740...0x2B81F, 0x2B820...0x2CEAF,
+                0x2CEB0...0x2EBEF, 0x2F800...0x2FA1F,
+                0x3040...0x309F, 0x30A0...0x30FF, 0x31F0...0x31FF,
+                0xAC00...0xD7AF, 0x1100...0x11FF, 0x3130...0x318F,
+                0xA960...0xA97F, 0xD7B0...0xD7FF:
+                return true
+            default:
+                continue
+            }
+        }
+        return false
     }
 
     private static func spelledOutTokens(for token: String) -> [String]? {
